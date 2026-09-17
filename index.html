@@ -161,7 +161,42 @@
   .badge.warn { background: #fef3c7; color: #b45309; }
 
   .hidden { display: none !important; }
-  #empty-state { text-align: center; color: #8a94a6; padding: 40px 0; font-size: 14px; }
+
+  /* --- locked (pre-import) state --- */
+  .lockable { position: relative; }
+  .lockable.locked > * { opacity: 0.45; pointer-events: none; user-select: none; }
+  .lockable.locked .lock-overlay { display: flex; }
+  .lock-overlay {
+    display: none;
+    position: absolute; inset: 0;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 4px;
+    z-index: 20;
+    color: #43506b; font-weight: 600; font-size: 14px;
+    text-align: center; padding: 0 20px;
+  }
+  .lock-overlay .lock-icon { font-size: 30px; }
+  .lock-overlay small { font-weight: 400; color: #8a94a6; }
+
+  /* --- import summary banner --- */
+  #import-summary {
+    background: #eef6ff;
+    border: 1px solid #bcd8f7;
+    border-radius: 12px;
+    padding: 12px 18px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: #2d3340;
+    display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center;
+  }
+  #import-summary .sum-title { font-weight: 700; color: #1f3a5f; }
+  #import-summary .pill {
+    background: #fff; border: 1px solid #c9d9ee; border-radius: 999px;
+    padding: 3px 10px; font-size: 12px; white-space: nowrap;
+  }
+  #import-summary .pill b { color: #1f3a5f; }
+  #import-summary .more { color: #5a6577; }
+  #import-summary .more::before { content: '↳ '; color: #3b82f6; }
 </style>
 </head>
 <body>
@@ -180,7 +215,14 @@
     <div id="dropzone">
       <div class="big">📄</div>
       <p><strong>Drop your CSV here</strong> or click to browse</p>
-      <small>.csv · UTF-8 or Windows-1252 · comma or semicolon separated</small>
+      <small>.csv / .txt · UTF-8 or Windows-1252 · comma, semicolon or tab separated</small>
+      <p style="margin-top:10px; font-size:12px; color:#8a94a6;">
+        After import: smart column mapping, company → domain boxes for the mailNickname suffixes,
+        and an editable preview before downloading the Entra-ready <code>BulkUser.csv</code>.
+      </p>
+      <p style="margin-top:6px; font-size:12px; color:#8a94a6;">
+        No file handy? Hit <strong>Load sample data</strong> (top right) to try it out.
+      </p>
     </div>
     <input type="file" id="file-input" accept=".csv,.txt,text/csv" class="hidden">
 
@@ -197,8 +239,15 @@
     </div>
   </section>
 
+  <div id="import-summary" class="hidden"></div>
+
   <!-- STEP 2: mapping -->
-  <section class="card hidden" id="mapping-card">
+  <section class="card lockable locked" id="mapping-card">
+    <div class="lock-overlay">
+      <div class="lock-icon">🔒</div>
+      <div>Import a CSV first</div>
+      <small>Column mapping, company boxes and defaults unlock after step 1.</small>
+    </div>
     <h2>2 · Map columns to the template</h2>
     <div id="mapping-grid"></div>
     <div id="defaults">
@@ -217,7 +266,12 @@
   </section>
 
   <!-- STEP 3: preview -->
-  <section class="card hidden" id="preview-card">
+  <section class="card lockable locked" id="preview-card">
+    <div class="lock-overlay">
+      <div class="lock-icon">🔒</div>
+      <div>Import a CSV first</div>
+      <small>The preview table and export buttons unlock after step 1.</small>
+    </div>
     <h2>3 · Preview &amp; export</h2>
     <div id="status-bar"></div>
     <div class="table-wrap"><table id="preview-table"></table></div>
@@ -227,8 +281,6 @@
       <span style="font-size:11.5px; color:#8a94a6;">Cells are editable — changes apply to the download.</span>
     </div>
   </section>
-
-  <div id="empty-state">Upload a CSV to get started. Output matches the header of <code>BulkUser.csv</code> exactly.</div>
 </main>
 
 <script>
@@ -273,15 +325,22 @@ const FIELDS = [
 const COMPANY_FIELD = {
   key: 'company',
   label: 'Company (source column)',
-  aliases: ['company','companyname','employer','organization','organisation','firma','selskap','selskapsnavn','arbeidsgiver','customer','kunde','client','org'],
+  aliases: [
+    'company','companyname','company name','companynames','companyname1','companyid',
+    'employer','employername','employers','organization','organisation','org','orgname',
+    'firma','firmanavn','selskap','selskapsnavn','selskapetsnavn','arbeidsgiver','arbeidsgivernavn',
+    'customer','customername','kunde','kundenavn','kunden','client','clientname','klient',
+    'tenant','tenantname','leietaker','account','accountname','kundekonto','virksomhet','bedrift','bedriftsnavn',
+  ],
 };
 const MAP_FIELDS = [...FIELDS, COMPANY_FIELD];
 
 const SAMPLE_CSV = [
-  'First name,Last name,Mobile,Department,Job title,Street address,Postal code,City,Company',
+  'First name,Last name,Mobile,Department,Job title,Street address,Postal code,City,CompanyName',
   'Kari,Nordmann,+47 400 12 345,Utvikling,Senior utvikler,Storgata 1,0150,Oslo,Vivicta',
   'Ola,Nordmann,+47 901 23 456,Salg,Salgssjef,Torgallmenningen 2,5003,Bergen,Vivicta',
   'John Arthur,Swanson Johnson,+47 480 55 123,IT,IT-ansvarlig,Bragernes torg 3,3003,Drammen,Nordica AS',
+  'Anne,Larsen,+47 922 10 455,Økonomi,Regnskapsfører,Kirkegata 5,4006,Stavanger,Nordica AS',
 ].join('\n');
 
 /* ================= state ================= */
@@ -582,21 +641,51 @@ function loadData(text) {
   $('file-name').textContent = `Parsed ${state.rawRows.length} data rows · delimiter "${delim === '\t' ? 'TAB' : delim}"`;
   state.companyBoxes = [];
   syncCompanyBoxesFromData();
-  $('mapping-card').classList.remove('hidden');
-  $('preview-card').classList.remove('hidden');
-  $('empty-state').classList.add('hidden');
+  unlock();
+  renderSummary(delim);
   transform();
+}
+
+/* --- lock / unlock + post-import summary --- */
+
+function unlock() {
+  $('mapping-card').classList.remove('locked');
+  $('preview-card').classList.remove('locked');
 }
 
 function resetAll() {
   state.headers = []; state.rawRows = []; state.rows = []; state.companyBoxes = [];
   renderCompanyBoxes();
-  $('mapping-card').classList.add('hidden');
-  $('preview-card').classList.add('hidden');
-  $('empty-state').classList.remove('hidden');
+  $('mapping-card').classList.add('locked');
+  $('preview-card').classList.add('locked');
+  $('import-summary').classList.add('hidden');
   $('file-name').textContent = '';
   $('btn-download').disabled = true;
   $('btn-copy').disabled = true;
+}
+
+function renderSummary(delim) {
+  const mapped = MAP_FIELDS.filter(f => state.mapping[f.key] >= 0);
+  const companies = [...new Set(state.rawRows.map(r => cell(r, state.mapping.company)).filter(Boolean))];
+  const req = MAP_FIELDS.filter(f => f.required);
+
+  const pills = [
+    `<span class="pill"><b>${state.rawRows.length}</b> rows</span>`,
+    `<span class="pill"><b>${state.headers.length}</b> columns · ${delim === '\t' ? 'TAB' : escapeHtml(delim)} separated</span>`,
+    `<span class="pill"><b>${mapped.length}/${MAP_FIELDS.length}</b> mapped</span>`,
+    `<span class="pill"><b>${companies.length}</b> compan${companies.length === 1 ? 'y' : 'ies'}${companies.length ? ': ' + escapeHtml(companies.join(', ')) : ''}</span>`,
+  ].join('');
+
+  const notes = [];
+  const missingReq = req.filter(f => state.mapping[f.key] < 0).map(f => f.label);
+  if (missingReq.length) notes.push(`unmapped required columns: <b>${missingReq.join(', ')}</b> — pick them in step 2 below`);
+  if (companies.length && state.mapping.company < 0) notes.push(`no company column detected — company boxes must be matched by hand`);
+  const optMapped = mapped.filter(f => !f.required && !f.derived && f.key !== 'company').map(f => f.label);
+
+  $('import-summary').innerHTML =
+    `<span class="sum-title">Import complete</span>${pills}` +
+    `<span class="more">Auto-mapped: ${optMapped.length ? escapeHtml(optMapped.join(', ')) : 'nothing'}${notes.length ? ' · ' + notes.join(' · ') : ''}</span>`;
+  $('import-summary').classList.remove('hidden');
 }
 
 /* ================= utils ================= */
@@ -629,7 +718,7 @@ function domainForCompany(companyName) {
 
 // ensure a box exists for each distinct company value found in the CSV
 function syncCompanyBoxesFromData() {
-  const idx = state.mapping.companyIdx ?? -1;
+  const idx = state.mapping.company ?? -1;
   if (idx < 0) {           // no company column mapped → one shared box
     if (!state.companyBoxes.length) addCompanyBox('', '', false);
     return;

@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>New Hire CSV → BulkUser.csv</title>
+<title>New Hire CSV → BulkUser.csv (Entra ID bulk create)</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: #f0f2f5;
     color: #2d3340;
     min-height: 100vh;
@@ -20,7 +20,7 @@
     padding: 14px 24px;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     flex-wrap: wrap;
     position: sticky;
     top: 0;
@@ -37,18 +37,25 @@
     font-weight: 600;
     padding: 8px 14px;
     border-radius: 8px;
-    transition: filter 0.15s, transform 0.1s;
+    transition: filter 0.15s, transform 0.1s, background-color 0.15s;
     background: #fff;
     color: #1f3a5f;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   button:hover { filter: brightness(0.95); }
   button:active { transform: translateY(1px); }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
   button.primary { background: #3b82f6; color: #fff; }
   button.ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.4); }
+  button.ghost:hover { background: rgba(255,255,255,0.1); }
   button.danger { color: #b91c1c; }
+  button.danger:hover { background: #fee2e2; }
+  button.secondary { background: #e2e8f0; color: #334155; }
+  button.secondary:hover { background: #cbd5e1; }
 
-  main { max-width: 1400px; margin: 0 auto; padding: 20px; }
+  main { max-width: 1440px; margin: 0 auto; padding: 20px; }
 
   .card {
     background: #fff;
@@ -63,7 +70,7 @@
   #dropzone {
     border: 2px dashed #b6c2d4;
     border-radius: 12px;
-    padding: 36px 20px;
+    padding: 34px 20px;
     text-align: center;
     cursor: pointer;
     transition: border-color 0.2s, background 0.2s;
@@ -79,7 +86,7 @@
   #paste-wrap.show { display: block; }
   #paste-input {
     width: 100%;
-    min-height: 140px;
+    min-height: 130px;
     font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 12.5px;
     padding: 10px;
@@ -91,10 +98,10 @@
   /* --- mapping --- */
   #mapping-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 10px 18px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px 18px;
   }
-  .map-item label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 3px; }
+  .map-item label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 4px; }
   .map-item label .req { color: #b91c1c; }
   .map-item select, .defaults input {
     width: 100%;
@@ -104,17 +111,31 @@
     font-size: 13px;
     background: #fff;
   }
-  #defaults { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px 18px; margin-top: 14px; padding-top: 14px; border-top: 1px dashed #e2e6ec; }
-  #defaults label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 3px; }
-  .hint { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
+  .map-item select:focus, .defaults input:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+  }
+
+  #defaults {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px 18px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px dashed #e2e6ec;
+  }
+  #defaults label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 4px; }
+  .hint { font-size: 11.5px; color: #8a94a6; margin-top: 3px; line-height: 1.4; }
 
   /* --- company → domain boxes --- */
   #company-boxes { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
-  .cbox-row { display: flex; align-items: center; gap: 8px; }
-  .cbox-name { flex: 0 0 220px; }
+  .cbox-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cbox-name-wrap { flex: 0 0 240px; }
   .cbox-arrow { color: #8a94a6; font-weight: 600; }
-  .cbox-domain { flex: 1; min-width: 160px; }
+  .cbox-domain { flex: 1; min-width: 180px; }
   .cbox-row input, .cbox-row select {
+    width: 100%;
     padding: 7px 9px;
     border: 1px solid #cfd6e0;
     border-radius: 7px;
@@ -128,15 +149,52 @@
   }
   .cbox-del:hover { background: #fee2e2; color: #b91c1c; }
 
-  /* --- preview table --- */
+  .company-actions-bar {
+    display: flex; gap: 10px; align-items: center; margin-top: 8px;
+  }
+
+  /* --- preview table & toolbar --- */
+  .table-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .table-filters {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .filter-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+    background: #e2e8f0;
+    color: #475569;
+  }
+  .filter-btn.active {
+    background: #1f3a5f;
+    color: #fff;
+  }
+  .search-input {
+    padding: 6px 10px;
+    font-size: 12.5px;
+    border: 1px solid #cfd6e0;
+    border-radius: 6px;
+    width: 220px;
+  }
+
   .table-wrap { overflow: auto; max-height: 55vh; border: 1px solid #e2e6ec; border-radius: 8px; }
   table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12.5px; }
   thead th {
     position: sticky; top: 0;
     background: #1f3a5f; color: #fff;
-    padding: 7px 8px; text-align: left; font-weight: 600;
+    padding: 8px 10px; text-align: left; font-weight: 600;
     white-space: nowrap; z-index: 5;
   }
+  thead th .th-req { color: #fca5a5; margin-left: 2px; }
   tbody td { border-bottom: 1px solid #eef1f5; padding: 0; }
   tbody tr:hover { background: #f7f9fc; }
   td input {
@@ -146,15 +204,15 @@
   }
   td input:focus { background: #eff6ff; box-shadow: inset 0 0 0 2px #3b82f6; }
   td input.invalid { background: #fef2f2; box-shadow: inset 0 -2px 0 #dc2626; }
-  td input.warn { box-shadow: inset 0 -2px 0 #d97706; }
+  td input.warn { box-shadow: inset 0 -2px 0 #d97706; background: #fffdf5; }
   td.rownum { padding: 7px 8px; color: #9aa3b2; text-align: right; font-size: 11px; white-space: nowrap; }
   td.action { padding: 4px 6px; }
   td.action button { padding: 2px 8px; font-size: 12px; border-radius: 6px; background: transparent; color: #9aa3b2; }
   td.action button:hover { background: #fee2e2; color: #b91c1c; }
 
   #status-bar {
-    display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
-    font-size: 13px; margin-bottom: 10px; color: #4b5563;
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    font-size: 13px; color: #4b5563;
   }
   .badge { padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; }
   .badge.ok { background: #dcfce7; color: #15803d; }
@@ -198,6 +256,29 @@
   #import-summary .pill b { color: #1f3a5f; }
   #import-summary .more { color: #5a6577; }
   #import-summary .more::before { content: '↳ '; color: #3b82f6; }
+
+  /* --- modal styles --- */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  .modal-dialog {
+    background: #fff; border-radius: 12px; width: 90%; max-width: 520px;
+    padding: 20px 24px; box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+  }
+  .modal-dialog h3 { font-size: 16px; margin-bottom: 10px; color: #1f3a5f; }
+  .modal-dialog p { font-size: 13px; color: #4b5563; margin-bottom: 14px; }
+  .saved-companies-list {
+    max-height: 240px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;
+    margin-bottom: 16px;
+  }
+  .saved-company-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; border-bottom: 1px solid #f1f5f9; font-size: 12.5px;
+  }
+  .saved-company-item:last-child { border-bottom: none; }
+  .saved-company-item span b { color: #1f3a5f; }
 </style>
 </head>
 <body>
@@ -229,7 +310,7 @@
 
     <div class="row-actions">
       <button id="btn-paste">Paste data instead</button>
-      <label style="font-size:12.5px; color:#4b5563; display:flex; align-items:center; gap:6px;">
+      <label style="font-size:12.5px; color:#4b5563; display:flex; align-items:center; gap:6px; cursor:pointer;">
         <input type="checkbox" id="first-row-header" checked> First row is a header
       </label>
       <span id="file-name" style="font-size:12.5px; color:#6b7280;"></span>
@@ -255,13 +336,16 @@
       <div style="grid-column: 1 / -1;">
         <label>Companies in this CSV → domain for their users <span class="req">*</span></label>
         <div id="company-boxes"></div>
-        <button id="btn-add-company" type="button">+ Add company</button>
-        <div class="hint">One box per company found in the CSV (a box is created automatically for each distinct company in the Company column). The domain fills the domain column of matching rows — that's the suffix used with each user's mailNickName.</div>
+        <div class="company-actions-bar">
+          <button id="btn-add-company" type="button">+ Add company</button>
+          <button id="btn-manage-companies" type="button" class="secondary">Manage saved domains</button>
+        </div>
+        <div class="hint">One box per company found in the CSV. The domain fills the domain column of matching rows — that's the suffix used with each user's mailNickName.</div>
       </div>
       <div>
         <label>Default businessPhones</label>
         <input type="text" id="def-bizphone" placeholder="e.g. +47 32 00 00 00">
-        <div class="hint">Filled in when the row has no value.</div>
+        <div class="hint">Filled in when the row has no phone number.</div>
       </div>
     </div>
   </section>
@@ -274,15 +358,37 @@
       <small>The preview table and export buttons unlock after step 1.</small>
     </div>
     <h2>3 · Preview &amp; export</h2>
-    <div id="status-bar"></div>
+
+    <div class="table-toolbar">
+      <div id="status-bar"></div>
+      <div class="table-filters">
+        <button type="button" class="filter-btn active" data-filter="all">All</button>
+        <button type="button" class="filter-btn" data-filter="errors">Errors only</button>
+        <button type="button" class="filter-btn" data-filter="warnings">Warnings only</button>
+        <input type="text" id="filter-search" class="search-input" placeholder="Search rows…">
+      </div>
+    </div>
+
     <div class="table-wrap"><table id="preview-table"></table></div>
     <div class="row-actions">
       <button id="btn-add-row">+ Add empty row</button>
       <button class="danger" id="btn-clear">Clear everything</button>
-      <span style="font-size:11.5px; color:#8a94a6;">Cells are editable — changes apply to the download.</span>
+      <span style="font-size:11.5px; color:#8a94a6;">Cells are editable — keyboard navigation (Tab/Shift+Tab, Enter) supported.</span>
     </div>
   </section>
 </main>
+
+<!-- Modal for managing saved companies in localStorage -->
+<div id="company-modal" class="modal-backdrop hidden">
+  <div class="modal-dialog">
+    <h3>Manage Saved Company Domains</h3>
+    <p>These company-to-domain pairs are remembered in your browser for automatic matching.</p>
+    <div class="saved-companies-list" id="saved-companies-list"></div>
+    <div style="display:flex; justify-content:flex-end; gap:8px;">
+      <button type="button" class="secondary" id="btn-close-modal">Close</button>
+    </div>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -321,8 +427,6 @@ const FIELDS = [
     aliases: ['businessphones','businessphone','workphone','officetelephone','jobbtelefon','kontortelefon','arbeidstelefon','worktelephone','telephonenumber'] },
 ];
 
-// Pseudo-field: the source CSV's company column — used to match rows to company
-// boxes so each company gets the right domain. Not part of the exported template.
 const COMPANY_FIELD = {
   key: 'company',
   label: 'Company (source column)',
@@ -347,11 +451,15 @@ const SAMPLE_CSV = [
 /* ================= state ================= */
 
 const state = {
+  rawSourceText: '',    // cached original text to allow flawless header toggles
+  currentDelim: ',',
   headers: [],          // source column names
   rawRows: [],          // array of arrays (no header)
   mapping: {},          // fieldKey -> source column index (-1 = none)
-  rows: [],             // transformed template-shaped rows (objects by field key)
-  companyBoxes: [],     // [{ name, domain }] — one box per company in the CSV
+  rows: [],             // transformed template-shaped rows
+  companyBoxes: [],     // [{ name, domain }]
+  filterType: 'all',    // 'all' | 'errors' | 'warnings'
+  searchQuery: '',
 };
 
 /* ================= CSV parsing ================= */
@@ -393,8 +501,6 @@ function parseCSV(text, delim) {
   return rows.filter(r => r.some(v => v.trim() !== ''));
 }
 
-// Read file as UTF-8; fall back to Windows-1252 if we see replacement chars
-// (typical for Excel exports with æøå saved as ANSI).
 async function readFile(file) {
   const buf = await file.arrayBuffer();
   let text = new TextDecoder('utf-8').decode(buf);
@@ -411,7 +517,6 @@ function autoMap() {
   state.mapping = {};
   const used = new Set();
 
-  // pass 1: exact alias hits (in template-field order, so 'mobile' beats generic 'phone')
   for (const f of MAP_FIELDS) {
     state.mapping[f.key] = -1;
     for (let i = 0; i < state.headers.length; i++) {
@@ -419,7 +524,6 @@ function autoMap() {
       if (f.aliases.includes(h) && !used.has(i)) { state.mapping[f.key] = i; used.add(i); break; }
     }
   }
-  // pass 2: fuzzy containment for leftovers (e.g. "mobile number", "mobilephone (privat)")
   for (const f of MAP_FIELDS) {
     if (state.mapping[f.key] !== -1) continue;
     for (let i = 0; i < state.headers.length; i++) {
@@ -432,21 +536,23 @@ function autoMap() {
 
 /* ================= transform / derive ================= */
 
+// Extended Latin & Nordic character transliteration
 function asciiFold(s) {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/æ/gi, 'ae').replace(/ø/gi, 'o').replace(/å/gi, 'a')
-    .replace(/ß/g, 'ss');
+  return s
+    .replace(/æ/gi, 'ae')
+    .replace(/ø/gi, 'o')
+    .replace(/å/gi, 'a')
+    .replace(/ä/gi, 'a')
+    .replace(/ö/gi, 'o')
+    .replace(/ü/gi, 'u')
+    .replace(/ß/g, 'ss')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
-/* --- name → mailNickName formula ---
-   Multiple first/last names are narrowed logically:
-     "John Arthur"  + "Swanson Johnson"  →  john.johnson   (first first-name, last last-name)
-     "John"         + "Johnson"          →  john.johnson
-     "Jean-Luc"     + "van der Berg"     →  jeanluc.berg
-   Tweak NAME_RULES below to change the behaviour later. */
 const NAME_RULES = {
-  given: 'first',   // 'first' | 'last' — which of several given names to keep
-  sur: 'last',      // 'first' | 'last' — which of several surnames to keep
+  given: 'first',
+  sur: 'last',
 };
 
 function pickNamePart(part, rule) {
@@ -460,7 +566,7 @@ function makeMailNick(given, sur) {
   const s = pickNamePart(sur || '', NAME_RULES.sur);
   const base = asciiFold(`${g}.${s}`)
     .toLowerCase()
-    .replace(/[^a-z0-9.]/g, '')   // hyphens, apostrophes etc. dropped: jean-luc → jeanluc
+    .replace(/[^a-z0-9.]/g, '')
     .replace(/\.{2,}/g, '.')
     .replace(/^\.+|\.+$/g, '');
   return base || 'user';
@@ -473,7 +579,6 @@ function transform() {
   const m = state.mapping;
   const boxes = state.companyBoxes;
 
-  // case/space-insensitive company → domain lookup among the boxes
   const boxDomain = (rawCompany) => {
     const c = (rawCompany || '').trim().toLowerCase();
     if (!c) return '';
@@ -485,7 +590,7 @@ function transform() {
     const o = {};
     for (const f of FIELDS) {
       let v = cell(r, m[f.key]);
-      if (f.key === 'mailNickName' && v.includes('@')) v = v.split('@')[0]; // full email → alias
+      if (f.key === 'mailNickName' && v.includes('@')) v = v.split('@')[0];
       if (f.key === 'displayName') v = `${cell(r, m.givenName)} ${cell(r, m.surName)}`.replace(/\s+/g, ' ').trim();
       if (f.key === 'mailNickName' && !v) v = makeMailNick(cell(r, m.givenName), cell(r, m.surName));
       if (f.key === 'domain') v = v || boxDomain(cell(r, m.company));
@@ -495,7 +600,7 @@ function transform() {
     return o;
   });
 
-  // de-duplicate mailNickName (Entra requires unique aliases)
+  // Unique de-duplicate mailNickName
   const seen = new Map();
   for (const r of state.rows) {
     const k = r.mailNickName.toLowerCase();
@@ -510,14 +615,32 @@ function transform() {
 
 /* ================= validation ================= */
 
+const DOMAIN_REGEX = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+
 function validateRow(r) {
   const problems = {};
   for (const f of FIELDS) {
     if (f.required && !r[f.key]) problems[f.key] = 'invalid';
   }
+
+  // Domain validation
+  if (r.domain && !DOMAIN_REGEX.test(r.domain)) {
+    problems.domain = 'invalid';
+  }
+
+  // mailNickName checks
   const mn = r.mailNickName;
-  if (mn && (!/^[a-z0-9.]+$/i.test(mn) || /\s/.test(mn))) problems.mailNickName = 'warn';
-  if (mn && !/\./.test(mn)) problems.mailNickName = 'warn';
+  if (mn) {
+    if (!/^[a-z0-9.]+$/i.test(mn) || /\s/.test(mn) || !/\./.test(mn) || mn.length > 64) {
+      problems.mailNickName = 'warn';
+    }
+  }
+
+  // displayName length check for Entra ID (max 256)
+  if (r.displayName && r.displayName.length > 256) {
+    problems.displayName = 'warn';
+  }
+
   return problems;
 }
 
@@ -535,7 +658,7 @@ function renderMapping() {
       .concat(state.headers.map((h, i) =>
         `<option value="${i}" ${state.mapping[f.key] === i ? 'selected' : ''}>${escapeHtml(h || 'Column ' + (i + 1))}</option>`))
       .join('');
-    const extra = f.key === 'company' ? ' <span style="font-weight:400;color:#8a94a6;">(not exported — used to match company boxes)</span>' : '';
+    const extra = f.key === 'company' ? ' <span style="font-weight:400;color:#8a94a6;">(not exported — used for company boxes)</span>' : '';
     div.innerHTML = `
       <label>${f.label}${extra} ${f.required ? '<span class="req">*</span>' : ''}</label>
       <select data-field="${f.key}">${opts}</select>`;
@@ -548,31 +671,59 @@ function renderMapping() {
   }
 }
 
+function rowMatchesFilter(r, probs) {
+  const hasErr = Object.values(probs).includes('invalid');
+  const hasWarn = Object.values(probs).includes('warn');
+
+  if (state.filterType === 'errors' && !hasErr) return false;
+  if (state.filterType === 'warnings' && !hasWarn) return false;
+
+  if (state.searchQuery) {
+    const q = state.searchQuery.toLowerCase();
+    const values = Object.values(r).join(' ').toLowerCase();
+    if (!values.includes(q)) return false;
+  }
+  return true;
+}
+
 function renderPreview() {
   const table = $('preview-table');
   const head = '<thead><tr><th>#</th>' +
-    FIELDS.map(f => `<th>${f.label}</th>`).join('') +
+    FIELDS.map(f => `<th>${f.label}${f.required ? '<span class="th-req">*</span>' : ''}</th>`).join('') +
     '<th></th></tr></thead>';
 
-  const body = state.rows.map((r, ri) => {
+  const rowsHtml = state.rows.map((r, ri) => {
     const probs = validateRow(r);
+    if (!rowMatchesFilter(r, probs)) return '';
+
     const cells = FIELDS.map(f =>
       `<td><input data-row="${ri}" data-field="${f.key}" value="${escapeAttr(r[f.key])}" class="${probs[f.key] || ''}"></td>`
     ).join('');
     return `<tr><td class="rownum">${ri + 1}</td>${cells}<td class="action"><button data-del="${ri}" title="Remove row">✕</button></td></tr>`;
   }).join('');
 
-  table.innerHTML = head + `<tbody>${body}</tbody>`;
+  table.innerHTML = head + `<tbody>${rowsHtml}</tbody>`;
 
-  // cell edits: update model in place (no re-render → keeps focus)
+  // cell edits: update model in place
   table.querySelectorAll('input[data-row]').forEach(inp => {
     inp.addEventListener('input', () => {
       state.rows[+inp.dataset.row][inp.dataset.field] = inp.value;
-      inp.classList.toggle('invalid', validateRow(state.rows[+inp.dataset.row])[inp.dataset.field] === 'invalid');
-      inp.classList.toggle('warn', validateRow(state.rows[+inp.dataset.row])[inp.dataset.field] === 'warn');
+      const curProbs = validateRow(state.rows[+inp.dataset.row]);
+      inp.classList.toggle('invalid', curProbs[inp.dataset.field] === 'invalid');
+      inp.classList.toggle('warn', curProbs[inp.dataset.field] === 'warn');
       renderStatus();
     });
+
+    // Spreadsheet-like keyboard navigation (Enter moves to next row, same column)
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const nextRow = table.querySelector(`input[data-row="${+inp.dataset.row + 1}"][data-field="${inp.dataset.field}"]`);
+        if (nextRow) nextRow.focus();
+      }
+    });
   });
+
   table.querySelectorAll('button[data-del]').forEach(btn => {
     btn.addEventListener('click', () => {
       state.rows.splice(+btn.dataset.del, 1);
@@ -587,11 +738,13 @@ function renderStatus() {
   const total = state.rows.length;
   const bad = state.rows.filter(r => Object.values(validateRow(r)).includes('invalid')).length;
   const warns = state.rows.filter(r => Object.values(validateRow(r)).includes('warn')).length;
+
   $('status-bar').innerHTML =
     `<span class="badge ${bad ? 'err' : 'ok'}">${total} rows</span>` +
-    (bad ? `<span class="badge err">${bad} with missing required fields</span>` : '') +
-    (warns ? `<span class="badge warn">${warns} with mailNickName warnings</span>` : '') +
-    (bad ? '<span style="font-size:12px; color:#9aa3b2;">Fix red cells (or set a default domain) before importing.</span>' : '');
+    (bad ? `<span class="badge err">${bad} with errors</span>` : '') +
+    (warns ? `<span class="badge warn">${warns} warnings</span>` : '') +
+    (bad ? '<span style="font-size:12px; color:#9aa3b2;">Fix invalid cells before Entra ID upload.</span>' : '');
+
   $('btn-download').disabled = total === 0;
   $('btn-copy').disabled = total === 0;
 }
@@ -609,7 +762,16 @@ function buildCSV() {
   return lines.join('\r\n') + '\r\n';
 }
 
+function checkErrorsBeforeExport() {
+  const bad = state.rows.filter(r => Object.values(validateRow(r)).includes('invalid')).length;
+  if (bad > 0) {
+    return confirm(`Warning: There are ${bad} rows with missing or invalid required fields (e.g. domain or givenName). Are you sure you want to proceed with export?`);
+  }
+  return true;
+}
+
 function download() {
+  if (!checkErrorsBeforeExport()) return;
   const blob = new Blob(['\uFEFF' + buildCSV()], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -619,16 +781,20 @@ function download() {
 }
 
 async function copyCSV() {
+  if (!checkErrorsBeforeExport()) return;
   await navigator.clipboard.writeText(buildCSV());
   const b = $('btn-copy');
+  const oldText = b.textContent;
   b.textContent = '✓ Copied';
-  setTimeout(() => (b.textContent = 'Copy CSV'), 1500);
+  setTimeout(() => (b.textContent = oldText), 1500);
 }
 
 /* ================= data loading ================= */
 
-function loadData(text) {
+function loadData(text, preserveMapping = false) {
+  state.rawSourceText = text;
   const delim = detectDelimiter(text);
+  state.currentDelim = delim;
   const all = parseCSV(text, delim);
   if (!all.length) { alert('Could not parse any rows from that file.'); return; }
 
@@ -638,16 +804,16 @@ function loadData(text) {
     : all[0].map((_, i) => `Column ${i + 1}`);
   state.rawRows = hasHeader ? all.slice(1) : all;
 
-  autoMap();
+  if (!preserveMapping || Object.keys(state.mapping).length === 0) {
+    autoMap();
+  }
+
   $('file-name').textContent = `Parsed ${state.rawRows.length} data rows · delimiter "${delim === '\t' ? 'TAB' : delim}"`;
-  state.companyBoxes = [];
   syncCompanyBoxesFromData();
   unlock();
   renderSummary(delim);
   transform();
 }
-
-/* --- lock / unlock + post-import summary --- */
 
 function unlock() {
   $('mapping-card').classList.remove('locked');
@@ -655,6 +821,7 @@ function unlock() {
 }
 
 function resetAll() {
+  state.rawSourceText = '';
   state.headers = []; state.rawRows = []; state.rows = []; state.companyBoxes = [];
   renderCompanyBoxes();
   $('mapping-card').classList.add('locked');
@@ -680,7 +847,7 @@ function renderSummary(delim) {
   const notes = [];
   const missingReq = req.filter(f => state.mapping[f.key] < 0).map(f => f.label);
   if (missingReq.length) notes.push(`unmapped required columns: <b>${missingReq.join(', ')}</b> — pick them in step 2 below`);
-  if (companies.length && state.mapping.company < 0) notes.push(`no company column detected — company boxes must be matched by hand`);
+  if (companies.length && state.mapping.company < 0) notes.push(`no company column detected — company boxes must be matched manually`);
   const optMapped = mapped.filter(f => !f.required && !f.derived && f.key !== 'company').map(f => f.label);
 
   $('import-summary').innerHTML =
@@ -694,9 +861,8 @@ function renderSummary(delim) {
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function escapeAttr(s) { return escapeHtml(s); }
 
-/* ================= company → domain boxes ================= */
+/* ================= company → domain boxes & LocalStorage ================= */
 
-// { 'company name (lowercase)': 'domain' } — remembered between sessions
 const COMPANY_KEY = 'nh-importer-companies';
 
 function loadCompanies() {
@@ -712,15 +878,17 @@ function rememberCompany(name, domain) {
   }
 }
 
-function domainForCompany(companyName) {
-  if (!companyName) return '';
-  return loadCompanies()[companyName.trim().toLowerCase()] || '';
+function removeRememberedCompany(name) {
+  const c = loadCompanies();
+  delete c[name.toLowerCase()];
+  localStorage.setItem(COMPANY_KEY, JSON.stringify(c));
+  renderSavedCompaniesModal();
+  renderCompanyBoxes();
 }
 
-// ensure a box exists for each distinct company value found in the CSV
 function syncCompanyBoxesFromData() {
   const idx = state.mapping.company ?? -1;
-  if (idx < 0) {           // no company column mapped → one shared box
+  if (idx < 0) {
     if (!state.companyBoxes.length) addCompanyBox('', '', false);
     return;
   }
@@ -735,7 +903,10 @@ function addCompanyBox(name = '', domain = '', focus = true) {
   state.companyBoxes.push({ name, domain });
   renderCompanyBoxes();
   const rows = $('company-boxes').querySelectorAll('.cbox-row');
-  if (focus) rows[rows.length - 1].querySelector('.cbox-name').focus();
+  if (focus && rows.length) {
+    const el = rows[rows.length - 1].querySelector('.cbox-name') || rows[rows.length - 1].querySelector('input');
+    if (el) el.focus();
+  }
 }
 
 function removeCompanyBox(i) {
@@ -748,8 +919,6 @@ function renderCompanyBoxes() {
   const wrap = $('company-boxes');
   wrap.innerHTML = '';
 
-  // dropdown options = companies remembered from earlier imports + companies
-  // present in the currently loaded CSV (union, case-insensitively deduped)
   const csvCompanies = [...new Set(state.rawRows.map(r => cell(r, state.mapping.company)).filter(Boolean))];
   const known = { ...loadCompanies() };
   for (const c of csvCompanies) {
@@ -764,17 +933,19 @@ function renderCompanyBoxes() {
     const row = document.createElement('div');
     row.className = 'cbox-row';
     row.innerHTML = `
-      <select class="cbox-name" data-i="${i}">
-        <option value="" ${b.name ? '' : 'selected'}>— pick a company —</option>
-        ${options}
-        <option value="__new__">➕ New company…</option>
-        ${b.name && !Object.keys(known).some(k => k.toLowerCase() === b.name.toLowerCase())
-          ? `<option value="${escapeAttr(b.name)}" selected>${escapeHtml(b.name)}</option>`
-          : ''}
-      </select>
+      <div class="cbox-name-wrap">
+        <select class="cbox-name" data-i="${i}">
+          <option value="" ${b.name ? '' : 'selected'}>— pick a company —</option>
+          ${options}
+          <option value="__new__">➕ New company…</option>
+          ${b.name && !Object.keys(known).some(k => k.toLowerCase() === b.name.toLowerCase())
+            ? `<option value="${escapeAttr(b.name)}" selected>${escapeHtml(b.name)}</option>`
+            : ''}
+        </select>
+      </div>
       <span class="cbox-arrow">→</span>
-      <input type="text" class="cbox-domain" placeholder="domain.com (used for mailNickName users)" value="${escapeAttr(b.domain)}">
-      <button type="button" class="cbox-del" title="Remove this company">✕</button>`;
+      <input type="text" class="cbox-domain" placeholder="domain.com (e.g. contoso.com)" value="${escapeAttr(b.domain)}">
+      <button type="button" class="cbox-del" title="Remove this company box">✕</button>`;
 
     const sel = row.querySelector('.cbox-name');
     if (b.name) sel.value = b.name;
@@ -782,7 +953,6 @@ function renderCompanyBoxes() {
 
     sel.addEventListener('change', e => {
       if (e.target.value === '__new__') {
-        // swap the dropdown for a text input to type a brand-new company name
         const inp = document.createElement('input');
         inp.type = 'text';
         inp.className = 'cbox-name';
@@ -793,17 +963,17 @@ function renderCompanyBoxes() {
           ev.target.classList.toggle('invalid', !!ev.target.value.trim() &&
             state.companyBoxes.some((o, j) => j !== i && o.name.trim().toLowerCase() === ev.target.value.trim().toLowerCase()));
         });
-        inp.addEventListener('change', () => {
-          b.name = inp.value;
-          rememberCompany(b.name, b.domain);
-          renderCompanyBoxes(); // back to dropdown once the name is saved
+        inp.addEventListener('blur', () => {
+          if (b.name.trim()) {
+            rememberCompany(b.name, b.domain);
+          }
+          renderCompanyBoxes();
         });
         sel.replaceWith(inp);
         inp.focus();
         return;
       }
       b.name = e.target.value;
-      // auto-fill domain from the remembered pair
       const dom = e.target.selectedOptions[0]?.dataset.domain || '';
       const domInp = row.querySelector('.cbox-domain');
       if (dom && domInp.value.trim() !== dom) domInp.value = dom;
@@ -822,6 +992,26 @@ function renderCompanyBoxes() {
   });
 }
 
+function renderSavedCompaniesModal() {
+  const list = $('saved-companies-list');
+  const known = loadCompanies();
+  const entries = Object.entries(known);
+  if (!entries.length) {
+    list.innerHTML = `<div style="padding:14px; text-align:center; color:#94a3b8;">No saved companies yet.</div>`;
+    return;
+  }
+  list.innerHTML = entries.map(([name, dom]) => `
+    <div class="saved-company-item">
+      <span><b>${escapeHtml(name)}</b> &rarr; ${escapeHtml(dom || '(no domain)')}</span>
+      <button type="button" class="danger" data-del-saved="${escapeAttr(name)}" style="padding:2px 8px; font-size:11.5px;">Delete</button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('button[data-del-saved]').forEach(btn => {
+    btn.addEventListener('click', () => removeRememberedCompany(btn.dataset.delSaved));
+  });
+}
+
 /* ================= wiring ================= */
 
 const dz = $('dropzone');
@@ -831,11 +1021,11 @@ dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
 dz.addEventListener('drop', e => {
   e.preventDefault(); dz.classList.remove('dragover');
   const f = e.dataTransfer.files[0];
-  if (f) f.text ? readFile(f).then(loadData) : null;
+  if (f) readFile(f).then(text => loadData(text));
 });
 $('file-input').addEventListener('change', e => {
   const f = e.target.files[0];
-  if (f) readFile(f).then(loadData);
+  if (f) readFile(f).then(text => loadData(text));
   e.target.value = '';
 });
 $('btn-paste').addEventListener('click', () => {
@@ -843,7 +1033,13 @@ $('btn-paste').addEventListener('click', () => {
   $('paste-input').focus();
 });
 $('btn-parse-paste').addEventListener('click', () => loadData($('paste-input').value));
-$('first-row-header').addEventListener('change', () => { if (state.rawRows.length || state.headers.length) renderMapping(); });
+
+// Toggle header properly by reparsing the original cached source text
+$('first-row-header').addEventListener('change', () => {
+  if (state.rawSourceText) {
+    loadData(state.rawSourceText, true);
+  }
+});
 
 $('btn-sample').addEventListener('click', () => loadData(SAMPLE_CSV));
 $('btn-download').addEventListener('click', download);
@@ -857,11 +1053,35 @@ $('btn-add-row').addEventListener('click', () => {
   renderPreview();
 });
 $('def-bizphone').addEventListener('input', () => { if (state.rawRows.length) transform(); });
-
-/* + Add company button; seed one shared box when nothing is loaded yet */
 $('btn-add-company').addEventListener('click', () => addCompanyBox());
-document.addEventListener('DOMContentLoaded', () => { if (!state.companyBoxes.length) addCompanyBox('', '', false); });
-if (!state.companyBoxes.length) addCompanyBox('', '', false); // script runs at end of body
+
+// Saved companies modal
+$('btn-manage-companies').addEventListener('click', () => {
+  renderSavedCompaniesModal();
+  $('company-modal').classList.remove('hidden');
+});
+$('btn-close-modal').addEventListener('click', () => $('company-modal').classList.add('hidden'));
+$('company-modal').addEventListener('click', e => {
+  if (e.target === $('company-modal')) $('company-modal').classList.add('hidden');
+});
+
+// Table filters
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.filterType = btn.dataset.filter;
+    renderPreview();
+  });
+});
+
+$('filter-search').addEventListener('input', e => {
+  state.searchQuery = e.target.value.trim();
+  renderPreview();
+});
+
+// Seed one box if empty
+if (!state.companyBoxes.length) addCompanyBox('', '', false);
 </script>
 </body>
 </html>

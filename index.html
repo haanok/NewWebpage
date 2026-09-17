@@ -108,6 +108,25 @@
   #defaults label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 3px; }
   .hint { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
 
+  /* --- company → domain boxes --- */
+  #company-boxes { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+  .cbox-row { display: flex; align-items: center; gap: 8px; }
+  .cbox-name { flex: 0 0 220px; }
+  .cbox-arrow { color: #8a94a6; font-weight: 600; }
+  .cbox-domain { flex: 1; min-width: 160px; }
+  .cbox-row input {
+    padding: 7px 9px;
+    border: 1px solid #cfd6e0;
+    border-radius: 7px;
+    font-size: 13px;
+  }
+  .cbox-row input:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
+  .cbox-row input.invalid { border-color: #dc2626; background: #fef2f2; }
+  .cbox-del {
+    background: transparent; color: #9aa3b2; padding: 6px 10px; border-radius: 6px; font-size: 13px;
+  }
+  .cbox-del:hover { background: #fee2e2; color: #b91c1c; }
+
   /* --- preview table --- */
   .table-wrap { overflow: auto; max-height: 55vh; border: 1px solid #e2e6ec; border-radius: 8px; }
   table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12.5px; }
@@ -183,10 +202,11 @@
     <h2>2 · Map columns to the template</h2>
     <div id="mapping-grid"></div>
     <div id="defaults">
-      <div>
-        <label>Default domain <span class="req">*</span></label>
-        <input type="text" id="def-domain" placeholder="e.g. company.com">
-        <div class="hint">Applied to every row (Entra requires the UPN suffix).</div>
+      <div style="grid-column: 1 / -1;">
+        <label>Companies in this CSV → domain for their users <span class="req">*</span></label>
+        <div id="company-boxes"></div>
+        <button id="btn-add-company" type="button">+ Add company</button>
+        <div class="hint">One box per company found in the CSV (a box is created automatically for each distinct company in the Company column). The domain fills the domain column of matching rows — that's the suffix used with each user's mailNickName.</div>
       </div>
       <div>
         <label>Default businessPhones</label>
@@ -248,11 +268,20 @@ const FIELDS = [
     aliases: ['businessphones','businessphone','workphone','officetelephone','jobbtelefon','kontortelefon','arbeidstelefon','worktelephone','telephonenumber'] },
 ];
 
+// Pseudo-field: the source CSV's company column — used to match rows to company
+// boxes so each company gets the right domain. Not part of the exported template.
+const COMPANY_FIELD = {
+  key: 'company',
+  label: 'Company (source column)',
+  aliases: ['company','companyname','employer','organization','organisation','firma','selskap','selskapsnavn','arbeidsgiver','customer','kunde','client','org'],
+};
+const MAP_FIELDS = [...FIELDS, COMPANY_FIELD];
+
 const SAMPLE_CSV = [
-  'First name,Last name,Mobile,Department,Job title,Street address,Postal code,City',
-  'Kari,Nordmann,+47 400 12 345,Utvikling,Senior utvikler,Storgata 1,0150,Oslo',
-  'Ola,Nordmann,+47 901 23 456,Salg,Salgssjef,Torgallmenningen 2,5003,Bergen',
-  'Håkon,Nordal,+47 480 55 123,IT,IT-ansvarlig,Bragernes torg 3,3003,Drammen',
+  'First name,Last name,Mobile,Department,Job title,Street address,Postal code,City,Company',
+  'Kari,Nordmann,+47 400 12 345,Utvikling,Senior utvikler,Storgata 1,0150,Oslo,Vivicta',
+  'Ola,Nordmann,+47 901 23 456,Salg,Salgssjef,Torgallmenningen 2,5003,Bergen,Vivicta',
+  'John Arthur,Swanson Johnson,+47 480 55 123,IT,IT-ansvarlig,Bragernes torg 3,3003,Drammen,Nordica AS',
 ].join('\n');
 
 /* ================= state ================= */
@@ -262,6 +291,7 @@ const state = {
   rawRows: [],          // array of arrays (no header)
   mapping: {},          // fieldKey -> source column index (-1 = none)
   rows: [],             // transformed template-shaped rows (objects by field key)
+  companyBoxes: [],     // [{ name, domain }] — one box per company in the CSV
 };
 
 /* ================= CSV parsing ================= */
@@ -322,7 +352,7 @@ function autoMap() {
   const used = new Set();
 
   // pass 1: exact alias hits (in template-field order, so 'mobile' beats generic 'phone')
-  for (const f of FIELDS) {
+  for (const f of MAP_FIELDS) {
     state.mapping[f.key] = -1;
     for (let i = 0; i < state.headers.length; i++) {
       const h = norm(state.headers[i]);
@@ -330,7 +360,7 @@ function autoMap() {
     }
   }
   // pass 2: fuzzy containment for leftovers (e.g. "mobile number", "mobilephone (privat)")
-  for (const f of FIELDS) {
+  for (const f of MAP_FIELDS) {
     if (state.mapping[f.key] !== -1) continue;
     for (let i = 0; i < state.headers.length; i++) {
       const h = norm(state.headers[i]);
@@ -348,10 +378,29 @@ function asciiFold(s) {
     .replace(/ß/g, 'ss');
 }
 
+/* --- name → mailNickName formula ---
+   Multiple first/last names are narrowed logically:
+     "John Arthur"  + "Swanson Johnson"  →  john.johnson   (first first-name, last last-name)
+     "John"         + "Johnson"          →  john.johnson
+     "Jean-Luc"     + "van der Berg"     →  jeanluc.berg
+   Tweak NAME_RULES below to change the behaviour later. */
+const NAME_RULES = {
+  given: 'first',   // 'first' | 'last' — which of several given names to keep
+  sur: 'last',      // 'first' | 'last' — which of several surnames to keep
+};
+
+function pickNamePart(part, rule) {
+  const tokens = part.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return '';
+  return rule === 'first' ? tokens[0] : tokens[tokens.length - 1];
+}
+
 function makeMailNick(given, sur) {
-  const base = asciiFold(`${given}.${sur}`.trim())
+  const g = pickNamePart(given || '', NAME_RULES.given);
+  const s = pickNamePart(sur || '', NAME_RULES.sur);
+  const base = asciiFold(`${g}.${s}`)
     .toLowerCase()
-    .replace(/[^a-z0-9.]/g, '')
+    .replace(/[^a-z0-9.]/g, '')   // hyphens, apostrophes etc. dropped: jean-luc → jeanluc
     .replace(/\.{2,}/g, '.')
     .replace(/^\.+|\.+$/g, '');
   return base || 'user';
@@ -360,18 +409,26 @@ function makeMailNick(given, sur) {
 const cell = (row, idx) => (idx >= 0 && idx < row.length ? row[idx].trim() : '');
 
 function transform() {
-  const defDomain = document.getElementById('def-domain').value.trim();
-  const defBiz = document.getElementById('def-bizphone').value.trim();
+  const defBiz = $('def-bizphone').value.trim();
   const m = state.mapping;
+  const boxes = state.companyBoxes;
+
+  // case/space-insensitive company → domain lookup among the boxes
+  const boxDomain = (rawCompany) => {
+    const c = (rawCompany || '').trim().toLowerCase();
+    if (!c) return '';
+    const hit = boxes.find(b => b.name.trim().toLowerCase() === c);
+    return hit ? hit.domain.trim() : '';
+  };
 
   state.rows = state.rawRows.map(r => {
     const o = {};
     for (const f of FIELDS) {
       let v = cell(r, m[f.key]);
       if (f.key === 'mailNickName' && v.includes('@')) v = v.split('@')[0]; // full email → alias
-      if (f.key === 'displayName') v = v || `${cell(r, m.givenName)} ${cell(r, m.surName)}`.replace(/\s+/g, ' ').trim();
+      if (f.key === 'displayName') v = `${cell(r, m.givenName)} ${cell(r, m.surName)}`.replace(/\s+/g, ' ').trim();
       if (f.key === 'mailNickName' && !v) v = makeMailNick(cell(r, m.givenName), cell(r, m.surName));
-      if (f.key === 'domain' && !v) v = defDomain;
+      if (f.key === 'domain') v = v || boxDomain(cell(r, m.company));
       if (f.key === 'businessPhones' && !v) v = defBiz;
       o[f.key] = v;
     }
@@ -411,18 +468,20 @@ const $ = id => document.getElementById(id);
 function renderMapping() {
   const grid = $('mapping-grid');
   grid.innerHTML = '';
-  for (const f of FIELDS) {
+  for (const f of MAP_FIELDS) {
     const div = document.createElement('div');
     div.className = 'map-item';
     const opts = [`<option value="-1">— none / derive —</option>`]
       .concat(state.headers.map((h, i) =>
         `<option value="${i}" ${state.mapping[f.key] === i ? 'selected' : ''}>${escapeHtml(h || 'Column ' + (i + 1))}</option>`))
       .join('');
+    const extra = f.key === 'company' ? ' <span style="font-weight:400;color:#8a94a6;">(not exported — used to match company boxes)</span>' : '';
     div.innerHTML = `
-      <label>${f.label} ${f.required ? '<span class="req">*</span>' : ''}</label>
+      <label>${f.label}${extra} ${f.required ? '<span class="req">*</span>' : ''}</label>
       <select data-field="${f.key}">${opts}</select>`;
     div.querySelector('select').addEventListener('change', e => {
       state.mapping[f.key] = parseInt(e.target.value, 10);
+      syncCompanyBoxesFromData();
       transform();
     });
     grid.appendChild(div);
@@ -521,11 +580,17 @@ function loadData(text) {
 
   autoMap();
   $('file-name').textContent = `Parsed ${state.rawRows.length} data rows · delimiter "${delim === '\t' ? 'TAB' : delim}"`;
+  state.companyBoxes = [];
+  syncCompanyBoxesFromData();
+  $('mapping-card').classList.remove('hidden');
+  $('preview-card').classList.remove('hidden');
+  $('empty-state').classList.add('hidden');
   transform();
 }
 
 function resetAll() {
-  state.headers = []; state.rawRows = []; state.rows = [];
+  state.headers = []; state.rawRows = []; state.rows = []; state.companyBoxes = [];
+  renderCompanyBoxes();
   $('mapping-card').classList.add('hidden');
   $('preview-card').classList.add('hidden');
   $('empty-state').classList.remove('hidden');
@@ -538,6 +603,82 @@ function resetAll() {
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function escapeAttr(s) { return escapeHtml(s); }
+
+/* ================= company → domain boxes ================= */
+
+// { 'company name (lowercase)': 'domain' } — remembered between sessions
+const COMPANY_KEY = 'nh-importer-companies';
+
+function loadCompanies() {
+  try { return JSON.parse(localStorage.getItem(COMPANY_KEY) || '{}'); } catch { return {}; }
+}
+
+function rememberCompany(name, domain) {
+  if (!name || !domain) return;
+  const c = loadCompanies();
+  if (c[name.toLowerCase()] !== domain) {
+    c[name.toLowerCase()] = domain;
+    localStorage.setItem(COMPANY_KEY, JSON.stringify(c));
+  }
+}
+
+function domainForCompany(companyName) {
+  if (!companyName) return '';
+  return loadCompanies()[companyName.trim().toLowerCase()] || '';
+}
+
+// ensure a box exists for each distinct company value found in the CSV
+function syncCompanyBoxesFromData() {
+  const idx = state.mapping.companyIdx ?? -1;
+  if (idx < 0) {           // no company column mapped → one shared box
+    if (!state.companyBoxes.length) addCompanyBox('', '', false);
+    return;
+  }
+  const distinct = [...new Set(state.rawRows.map(r => cell(r, idx)).filter(Boolean))];
+  for (const name of distinct) {
+    const exists = state.companyBoxes.some(b => b.name.trim().toLowerCase() === name.toLowerCase());
+    if (!exists) addCompanyBox(name, loadCompanies()[name.toLowerCase()] || '', false);
+  }
+}
+
+function addCompanyBox(name = '', domain = '', focus = true) {
+  state.companyBoxes.push({ name, domain });
+  renderCompanyBoxes();
+  const rows = $('company-boxes').querySelectorAll('.cbox-row');
+  if (focus) rows[rows.length - 1].querySelector('.cbox-name').focus();
+}
+
+function removeCompanyBox(i) {
+  state.companyBoxes.splice(i, 1);
+  renderCompanyBoxes();
+  if (state.rawRows.length) transform();
+}
+
+function renderCompanyBoxes() {
+  const wrap = $('company-boxes');
+  wrap.innerHTML = '';
+  state.companyBoxes.forEach((b, i) => {
+    const row = document.createElement('div');
+    row.className = 'cbox-row';
+    row.innerHTML = `
+      <input type="text" class="cbox-name" placeholder="Company name" value="${escapeAttr(b.name)}">
+      <span class="cbox-arrow">→</span>
+      <input type="text" class="cbox-domain" placeholder="domain.com (used for mailNickName users)" value="${escapeAttr(b.domain)}">
+      <button type="button" class="cbox-del" title="Remove this company">✕</button>`;
+    row.querySelector('.cbox-name').addEventListener('input', e => {
+      b.name = e.target.value;
+      e.target.classList.toggle('invalid', !!e.target.value.trim() && state.companyBoxes.some((o, j) => j !== i && o.name.trim().toLowerCase() === e.target.value.trim().toLowerCase()));
+    });
+    row.querySelector('.cbox-domain').addEventListener('input', e => {
+      b.domain = e.target.value.trim();
+      rememberCompany(b.name, b.domain);
+      if (state.rawRows.length) transform();
+    });
+    row.querySelector('.cbox-name').addEventListener('change', () => rememberCompany(b.name, b.domain));
+    row.querySelector('.cbox-del').addEventListener('click', () => removeCompanyBox(i));
+    wrap.appendChild(row);
+  });
+}
 
 /* ================= wiring ================= */
 
@@ -569,14 +710,16 @@ $('btn-clear').addEventListener('click', () => { if (confirm('Clear loaded data,
 $('btn-add-row').addEventListener('click', () => {
   const o = {};
   FIELDS.forEach(f => (o[f.key] = ''));
-  o.domain = $('def-domain').value.trim();
   o.businessPhones = $('def-bizphone').value.trim();
   state.rows.push(o);
   renderPreview();
 });
-['def-domain', 'def-bizphone'].forEach(id =>
-  $(id).addEventListener('input', () => { if (state.rawRows.length) transform(); })
-);
+$('def-bizphone').addEventListener('input', () => { if (state.rawRows.length) transform(); });
+
+/* + Add company button; seed one shared box when nothing is loaded yet */
+$('btn-add-company').addEventListener('click', () => addCompanyBox());
+document.addEventListener('DOMContentLoaded', () => { if (!state.companyBoxes.length) addCompanyBox('', '', false); });
+if (!state.companyBoxes.length) addCompanyBox('', '', false); // script runs at end of body
 </script>
 </body>
 </html>

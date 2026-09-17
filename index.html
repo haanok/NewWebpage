@@ -114,14 +114,15 @@
   .cbox-name { flex: 0 0 220px; }
   .cbox-arrow { color: #8a94a6; font-weight: 600; }
   .cbox-domain { flex: 1; min-width: 160px; }
-  .cbox-row input {
+  .cbox-row input, .cbox-row select {
     padding: 7px 9px;
     border: 1px solid #cfd6e0;
     border-radius: 7px;
     font-size: 13px;
+    background: #fff;
   }
-  .cbox-row input:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
-  .cbox-row input.invalid { border-color: #dc2626; background: #fef2f2; }
+  .cbox-row input:focus, .cbox-row select:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
+  .cbox-row input.invalid, .cbox-row select.invalid { border-color: #dc2626; background: #fef2f2; }
   .cbox-del {
     background: transparent; color: #9aa3b2; padding: 6px 10px; border-radius: 6px; font-size: 13px;
   }
@@ -746,24 +747,76 @@ function removeCompanyBox(i) {
 function renderCompanyBoxes() {
   const wrap = $('company-boxes');
   wrap.innerHTML = '';
+
+  // dropdown options = companies remembered from earlier imports + companies
+  // present in the currently loaded CSV (union, case-insensitively deduped)
+  const csvCompanies = [...new Set(state.rawRows.map(r => cell(r, state.mapping.company)).filter(Boolean))];
+  const known = { ...loadCompanies() };
+  for (const c of csvCompanies) {
+    if (!Object.keys(known).some(k => k.toLowerCase() === c.toLowerCase())) known[c] = known[c] || '';
+  }
+  const options = Object.entries(known)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, dom]) => `<option value="${escapeAttr(name)}" data-domain="${escapeAttr(dom || '')}">${escapeHtml(name)}${dom ? ' · ' + escapeHtml(dom) : ''}</option>`)
+    .join('');
+
   state.companyBoxes.forEach((b, i) => {
     const row = document.createElement('div');
     row.className = 'cbox-row';
     row.innerHTML = `
-      <input type="text" class="cbox-name" placeholder="Company name" value="${escapeAttr(b.name)}">
+      <select class="cbox-name" data-i="${i}">
+        <option value="" ${b.name ? '' : 'selected'}>— pick a company —</option>
+        ${options}
+        <option value="__new__">➕ New company…</option>
+        ${b.name && !Object.keys(known).some(k => k.toLowerCase() === b.name.toLowerCase())
+          ? `<option value="${escapeAttr(b.name)}" selected>${escapeHtml(b.name)}</option>`
+          : ''}
+      </select>
       <span class="cbox-arrow">→</span>
       <input type="text" class="cbox-domain" placeholder="domain.com (used for mailNickName users)" value="${escapeAttr(b.domain)}">
       <button type="button" class="cbox-del" title="Remove this company">✕</button>`;
-    row.querySelector('.cbox-name').addEventListener('input', e => {
+
+    const sel = row.querySelector('.cbox-name');
+    if (b.name) sel.value = b.name;
+    if (!b.name) sel.value = '';
+
+    sel.addEventListener('change', e => {
+      if (e.target.value === '__new__') {
+        // swap the dropdown for a text input to type a brand-new company name
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = 'cbox-name';
+        inp.placeholder = 'Type new company name';
+        inp.value = b.name || '';
+        inp.addEventListener('input', ev => {
+          b.name = ev.target.value;
+          ev.target.classList.toggle('invalid', !!ev.target.value.trim() &&
+            state.companyBoxes.some((o, j) => j !== i && o.name.trim().toLowerCase() === ev.target.value.trim().toLowerCase()));
+        });
+        inp.addEventListener('change', () => {
+          b.name = inp.value;
+          rememberCompany(b.name, b.domain);
+          renderCompanyBoxes(); // back to dropdown once the name is saved
+        });
+        sel.replaceWith(inp);
+        inp.focus();
+        return;
+      }
       b.name = e.target.value;
-      e.target.classList.toggle('invalid', !!e.target.value.trim() && state.companyBoxes.some((o, j) => j !== i && o.name.trim().toLowerCase() === e.target.value.trim().toLowerCase()));
+      // auto-fill domain from the remembered pair
+      const dom = e.target.selectedOptions[0]?.dataset.domain || '';
+      const domInp = row.querySelector('.cbox-domain');
+      if (dom && domInp.value.trim() !== dom) domInp.value = dom;
+      b.domain = domInp.value.trim();
+      rememberCompany(b.name, b.domain);
+      if (state.rawRows.length) transform();
     });
+
     row.querySelector('.cbox-domain').addEventListener('input', e => {
       b.domain = e.target.value.trim();
       rememberCompany(b.name, b.domain);
       if (state.rawRows.length) transform();
     });
-    row.querySelector('.cbox-name').addEventListener('change', () => rememberCompany(b.name, b.domain));
     row.querySelector('.cbox-del').addEventListener('click', () => removeCompanyBox(i));
     wrap.appendChild(row);
   });

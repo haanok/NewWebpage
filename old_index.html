@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scribble Board</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #e8e4d8;
+    background-image:
+      radial-gradient(#d8d3c4 1px, transparent 1px);
+    background-size: 24px 24px;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid #ccc7b8;
+    z-index: 100;
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #4a463b;
+    margin-right: auto;
+  }
+
+  button {
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  button:hover { transform: translateY(-1px); }
+  button:active { transform: translateY(1px); }
+
+  #add-note {
+    background: #4a90d9;
+    color: white;
+  }
+  #add-note:hover { box-shadow: 0 4px 12px rgba(74,144,217,0.4); }
+
+  #clear-all {
+    background: transparent;
+    color: #a05a4a;
+  }
+  #clear-all:hover { background: rgba(160,90,74,0.1); }
+
+  #board {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    touch-action: none; /* let notes receive touch drags without page scrolling */
+  }
+
+  .note {
+    position: absolute;
+    width: 220px;
+    min-height: 180px;
+    padding: 14px;
+    border-radius: 2px 12px 4px 12px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    cursor: grab;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    animation: pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: box-shadow 0.2s;
+    z-index: 95;
+  }
+  .note:hover { box-shadow: 0 8px 20px rgba(0,0,0,0.22); }
+  .note.dragging {
+    cursor: grabbing;
+    box-shadow: 0 14px 30px rgba(0,0,0,0.3);
+    transform: scale(1.04) rotate(2deg);
+    z-index: 50;
+  }
+
+  /* --- discard animation --- */
+  .note.discard {
+    animation: crumple 0.45s cubic-bezier(0.5, -0.3, 0.7, 0.4) forwards;
+    pointer-events: none;
+  }
+  /* --- throw-into-bin animation --- */
+  .note.tossed {
+    transition: left 0.4s ease-in, top 0.4s ease-in, transform 0.4s ease-in, opacity 0.4s ease-in;
+    pointer-events: none;
+  }
+  @keyframes crumple {
+    0%   { transform: scale(1) rotate(0deg); opacity: 1; }
+    40%  { transform: scale(0.8) rotate(-8deg); opacity: 1; }
+    100% { transform: scale(0.05) rotate(40deg) translateY(120px); opacity: 0; }
+  }
+
+  @keyframes pop-in {
+    from { transform: scale(0.5) rotate(-6deg); opacity: 0; }
+    to   { transform: scale(1) rotate(var(--tilt, 0deg)); opacity: 1; }
+  }
+
+  .note textarea {
+    flex: 1;
+    border: none;
+    background: transparent;
+    resize: none;
+    outline: none;
+    font-family: 'Comic Sans MS', 'Segoe UI', cursive, sans-serif;
+    font-size: 15px;
+    line-height: 1.4;
+    color: #33302a;
+    cursor: text;
+    pointer-events: auto;
+  }
+
+  .note .note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    pointer-events: none; /* let drags pass through except the button */
+  }
+
+  .note .delete-btn {
+    pointer-events: auto;
+    background: transparent;
+    color: rgba(0,0,0,0.35);
+    font-size: 16px;
+    padding: 2px 8px;
+    border-radius: 50%;
+    line-height: 1;
+  }
+  .note .delete-btn:hover {
+    background: rgba(0,0,0,0.12);
+    color: #a03030;
+    transform: scale(1.15);
+  }
+
+  /* --- trash bin --- */
+  #trash-bin {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 110px;
+    text-align: center;
+    z-index: 90;
+    pointer-events: none;
+    user-select: none;
+    transition: transform 0.2s;
+  }
+  #trash-bin .bin-icon {
+    font-size: 64px;
+    line-height: 1;
+    filter: grayscale(0.5) opacity(0.6);
+    transition: filter 0.2s, transform 0.2s;
+    display: block;
+  }
+  #trash-bin .bin-hint {
+    font-size: 11px;
+    color: #8a8577;
+    margin-top: 2px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  #trash-bin.active .bin-icon {
+    filter: none;
+    transform: scale(1.2);
+  }
+  #trash-bin.active .bin-hint { opacity: 1; }
+  #trash-bin.shake { animation: bin-shake 0.45s; }
+  @keyframes bin-shake {
+    0%, 100% { transform: rotate(0); }
+    20% { transform: rotate(-14deg); }
+    45% { transform: rotate(11deg); }
+    70% { transform: rotate(-7deg); }
+  }
+
+  /* note colors */
+  .note.yellow  { background: linear-gradient(180deg, #fff3a0, #ffe566); }
+  .note.pink    { background: linear-gradient(180deg, #ffc9d4, #ffabc0); }
+  .note.blue    { background: linear-gradient(180deg, #b8e0ff, #96cef5); }
+  .note.green   { background: linear-gradient(180deg, #bdf0b4, #9de392); }
+  .note.purple  { background: linear-gradient(180deg, #ddc5f5, #c9a8ef); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🗒️ Scribble Board</h1>
+  <button id="add-note">+ New Note</button>
+  <button id="clear-all">Clear All</button>
+</header>
+
+<div id="board"></div>
+
+<div id="trash-bin" title="Drag or swipe notes here to throw them away">
+  <span class="bin-icon">🗑️</span>
+  <span class="bin-hint">swipe notes here</span>
+</div>
+
+<script>
+const board = document.getElementById('board');
+const COLORS = ['yellow', 'pink', 'blue', 'green', 'purple'];
+const STORAGE_KEY = 'scribble-board-notes';
+const trashBin = document.getElementById('trash-bin');
+
+let notes = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+let zIndexCounter = 96; // keep notes above the trash bin (z-index 90)
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+}
+
+function createNoteEl(note) {
+  const el = document.createElement('div');
+  el.className = `note ${note.color}`;
+  el.style.left = note.x + 'px';
+  el.style.top = note.y + 'px';
+  el.style.zIndex = note.z || ++zIndexCounter;
+  // subtle random tilt for a hand-placed feel
+  el.style.setProperty('--tilt', (Math.random() * 3 - 1.5).toFixed(2) + 'deg');
+  el.innerHTML = `
+    <div class="note-header">
+      <span></span>
+      <button class="delete-btn" title="Discard note">✕</button>
+    </div>
+    <textarea placeholder="Jot something down..."></textarea>
+  `;
+  el.querySelector('textarea').value = note.text;
+  return el;
+}
+
+function render() {
+  board.innerHTML = '';
+  notes.forEach(note => {
+    const el = createNoteEl(note);
+    setupNoteEvents(el, note);
+    board.appendChild(el);
+  });
+}
+
+function setupNoteEvents(el, note) {
+  const textarea = el.querySelector('textarea');
+
+  // save text on input (debounced)
+  let saveTimer;
+  textarea.addEventListener('input', () => {
+    note.text = textarea.value;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 300);
+  });
+
+  // bring to front on any interaction
+  el.addEventListener('mousedown', () => {
+    el.style.zIndex = ++zIndexCounter;
+    note.z = zIndexCounter;
+  });
+
+  // discard with animation
+  el.querySelector('.delete-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    el.classList.add('discard');
+    setTimeout(() => {
+      notes = notes.filter(n => n.id !== note.id);
+      save();
+      el.remove();
+    }, 450); // match crumple animation duration
+  });
+
+  // dragging (with velocity tracking for swipe-to-throw)
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target === textarea) return; // don't drag when editing text
+    const rect = el.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+    el.classList.add('dragging');
+    el.setPointerCapture(e.pointerId);
+
+    let lastX = e.clientX, lastY = e.clientY, lastT = performance.now();
+    let vx = 0, vy = 0;
+
+    const overBin = (x, y) => {
+      const b = trashBin.getBoundingClientRect();
+      // generous hit area, so you don't need pixel-perfect aim
+      const pad = 40;
+      return x > b.left - pad && x < b.right + pad && y > b.top - pad && y < b.bottom + pad;
+    };
+
+    const move = (e) => {
+      const now = performance.now();
+      const dt = Math.max(now - lastT, 1);
+      vx = (e.clientX - lastX) / dt;  // px per ms
+      vy = (e.clientY - lastY) / dt;
+      lastX = e.clientX; lastY = e.clientY; lastT = now;
+
+      note.x = Math.max(0, Math.min(window.innerWidth - 220, e.clientX - offsetX));
+      note.y = Math.max(60, Math.min(window.innerHeight - 60, e.clientY - offsetY));
+      el.style.left = note.x + 'px';
+      el.style.top = note.y + 'px';
+      trashBin.classList.toggle('active', overBin(e.clientX, e.clientY));
+    };
+
+    const up = (e) => {
+      el.classList.remove('dragging');
+      trashBin.classList.remove('active');
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+
+      const speed = Math.hypot(vx, vy); // px per ms
+
+      // 1) released directly on the bin, or
+      // 2) flicked hard toward the bin area (swipe-to-throw)
+      const towardBin = (() => {
+        if (speed < 0.9) return false;
+        const b = trashBin.getBoundingClientRect();
+        const binCx = b.left + b.width / 2, binCy = b.top + b.height / 2;
+        const dx = binCx - (note.x + 110), dy = binCy - (note.y + 90);
+        const dist = Math.hypot(dx, dy);
+        if (dist === 0) return true;
+        // velocity must point at the bin (dot product) and it must be reasonably close
+        return (vx * dx + vy * dy) / (speed * dist) > 0.5 && dist < 700;
+      })();
+
+      if (overBin(e.clientX, e.clientY) || towardBin) {
+        tossNote(el, note);
+        return;
+      }
+      save();
+    };
+
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  });
+}
+
+// fly the note into the bin, then crumple & remove
+function tossNote(el, note) {
+  const b = trashBin.getBoundingClientRect();
+  notes = notes.filter(n => n.id !== note.id);
+  save();
+
+  el.classList.add('tossed');
+  // shrink as it flies, aiming for the bin mouth
+  requestAnimationFrame(() => {
+    el.style.left = (b.left + b.width / 2 - 110) + 'px';
+    el.style.top = (b.top + 10) + 'px';
+    el.style.transform = 'scale(0.15) rotate(360deg)';
+    el.style.opacity = '0.4';
+  });
+
+  setTimeout(() => {
+    trashBin.classList.add('shake');
+    setTimeout(() => trashBin.classList.remove('shake'), 500);
+    el.remove();
+  }, 400);
+}
+
+function addNote() {
+  const note = {
+    id: Date.now(),
+    text: '',
+    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    x: 60 + Math.random() * (window.innerWidth - 300),
+    y: 90 + Math.random() * (window.innerHeight - 300),
+    z: ++zIndexCounter,
+  };
+  notes.push(note);
+  const el = createNoteEl(note);
+  setupNoteEvents(el, note);
+  board.appendChild(el);
+  save();
+  el.querySelector('textarea').focus();
+}
+
+document.getElementById('add-note').addEventListener('click', addNote);
+
+document.getElementById('clear-all').addEventListener('click', () => {
+  document.querySelectorAll('.note').forEach((el, i) => {
+    setTimeout(() => {
+      el.classList.add('discard');
+      setTimeout(() => el.remove(), 450);
+    }, i * 80); // staggered discard cascade
+  });
+  setTimeout(() => { notes = []; save(); }, document.querySelectorAll('.note').length * 80 + 450);
+});
+
+// keyboard shortcut: N for new note
+document.addEventListener('keydown', (e) => {
+  if ((e.key === 'n' || e.key === 'N') && document.activeElement.tagName !== 'TEXTAREA') {
+    addNote();
+  }
+});
+
+render();
+</script>
+</body>
+</html>

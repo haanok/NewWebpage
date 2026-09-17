@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Hire CSV → BulkUser.csv</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #f0f2f5;
+    color: #2d3340;
+    min-height: 100vh;
+  }
+
+  header {
+    background: #1f3a5f;
+    color: #fff;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  header h1 { font-size: 18px; font-weight: 600; margin-right: auto; }
+  header h1 small { display: block; font-size: 11px; font-weight: 400; opacity: 0.75; }
+
+  button {
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 8px;
+    transition: filter 0.15s, transform 0.1s;
+    background: #fff;
+    color: #1f3a5f;
+  }
+  button:hover { filter: brightness(0.95); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.primary { background: #3b82f6; color: #fff; }
+  button.ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.4); }
+  button.danger { color: #b91c1c; }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; margin-bottom: 12px; }
+
+  /* --- upload area --- */
+  #dropzone {
+    border: 2px dashed #b6c2d4;
+    border-radius: 12px;
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    color: #5a6577;
+  }
+  #dropzone.dragover { border-color: #3b82f6; background: #eff6ff; }
+  #dropzone .big { font-size: 34px; }
+  #dropzone p { margin-top: 8px; font-size: 14px; }
+  #dropzone small { color: #8a94a6; }
+  .row-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+
+  #paste-wrap { display: none; margin-top: 14px; }
+  #paste-wrap.show { display: block; }
+  #paste-input {
+    width: 100%;
+    min-height: 140px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    padding: 10px;
+    border: 1px solid #cfd6e0;
+    border-radius: 8px;
+    resize: vertical;
+  }
+
+  /* --- mapping --- */
+  #mapping-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px 18px;
+  }
+  .map-item label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 3px; }
+  .map-item label .req { color: #b91c1c; }
+  .map-item select, .defaults input {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid #cfd6e0;
+    border-radius: 7px;
+    font-size: 13px;
+    background: #fff;
+  }
+  #defaults { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px 18px; margin-top: 14px; padding-top: 14px; border-top: 1px dashed #e2e6ec; }
+  #defaults label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 3px; }
+  .hint { font-size: 11.5px; color: #8a94a6; margin-top: 2px; }
+
+  /* --- preview table --- */
+  .table-wrap { overflow: auto; max-height: 55vh; border: 1px solid #e2e6ec; border-radius: 8px; }
+  table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12.5px; }
+  thead th {
+    position: sticky; top: 0;
+    background: #1f3a5f; color: #fff;
+    padding: 7px 8px; text-align: left; font-weight: 600;
+    white-space: nowrap; z-index: 5;
+  }
+  tbody td { border-bottom: 1px solid #eef1f5; padding: 0; }
+  tbody tr:hover { background: #f7f9fc; }
+  td input {
+    border: none; background: transparent; width: 100%;
+    padding: 7px 8px; font-size: 12.5px; font-family: inherit; outline: none;
+    min-width: 90px;
+  }
+  td input:focus { background: #eff6ff; box-shadow: inset 0 0 0 2px #3b82f6; }
+  td input.invalid { background: #fef2f2; box-shadow: inset 0 -2px 0 #dc2626; }
+  td input.warn { box-shadow: inset 0 -2px 0 #d97706; }
+  td.rownum { padding: 7px 8px; color: #9aa3b2; text-align: right; font-size: 11px; white-space: nowrap; }
+  td.action { padding: 4px 6px; }
+  td.action button { padding: 2px 8px; font-size: 12px; border-radius: 6px; background: transparent; color: #9aa3b2; }
+  td.action button:hover { background: #fee2e2; color: #b91c1c; }
+
+  #status-bar {
+    display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+    font-size: 13px; margin-bottom: 10px; color: #4b5563;
+  }
+  .badge { padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; }
+  .badge.ok { background: #dcfce7; color: #15803d; }
+  .badge.err { background: #fee2e2; color: #b91c1c; }
+  .badge.warn { background: #fef3c7; color: #b45309; }
+
+  .hidden { display: none !important; }
+  #empty-state { text-align: center; color: #8a94a6; padding: 40px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📥 New Hire Importer <small>maps your hires CSV onto the BulkUser.csv template (Entra ID bulk create)</small></h1>
+  <button class="ghost" id="btn-sample">Load sample data</button>
+  <button id="btn-copy" disabled>Copy CSV</button>
+  <button class="primary" id="btn-download" disabled>⬇ Download BulkUser.csv</button>
+</header>
+
+<main>
+  <!-- STEP 1: upload -->
+  <section class="card">
+    <h2>1 · Upload hires CSV</h2>
+    <div id="dropzone">
+      <div class="big">📄</div>
+      <p><strong>Drop your CSV here</strong> or click to browse</p>
+      <small>.csv · UTF-8 or Windows-1252 · comma or semicolon separated</small>
+    </div>
+    <input type="file" id="file-input" accept=".csv,.txt,text/csv" class="hidden">
+
+    <div class="row-actions">
+      <button id="btn-paste">Paste data instead</button>
+      <label style="font-size:12.5px; color:#4b5563; display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="first-row-header" checked> First row is a header
+      </label>
+      <span id="file-name" style="font-size:12.5px; color:#6b7280;"></span>
+    </div>
+    <div id="paste-wrap">
+      <textarea id="paste-input" placeholder="Paste CSV content here… (First name,Last name,Mobile,Department…)"></textarea>
+      <div class="row-actions"><button class="primary" id="btn-parse-paste">Parse pasted data</button></div>
+    </div>
+  </section>
+
+  <!-- STEP 2: mapping -->
+  <section class="card hidden" id="mapping-card">
+    <h2>2 · Map columns to the template</h2>
+    <div id="mapping-grid"></div>
+    <div id="defaults">
+      <div>
+        <label>Default domain <span class="req">*</span></label>
+        <input type="text" id="def-domain" placeholder="e.g. company.com">
+        <div class="hint">Applied to every row (Entra requires the UPN suffix).</div>
+      </div>
+      <div>
+        <label>Default businessPhones</label>
+        <input type="text" id="def-bizphone" placeholder="e.g. +47 32 00 00 00">
+        <div class="hint">Filled in when the row has no value.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 3: preview -->
+  <section class="card hidden" id="preview-card">
+    <h2>3 · Preview &amp; export</h2>
+    <div id="status-bar"></div>
+    <div class="table-wrap"><table id="preview-table"></table></div>
+    <div class="row-actions">
+      <button id="btn-add-row">+ Add empty row</button>
+      <button class="danger" id="btn-clear">Clear everything</button>
+      <span style="font-size:11.5px; color:#8a94a6;">Cells are editable — changes apply to the download.</span>
+    </div>
+  </section>
+
+  <div id="empty-state">Upload a CSV to get started. Output matches the header of <code>BulkUser.csv</code> exactly.</div>
+</main>
+
+<script>
+'use strict';
+
+/* ================= constants ================= */
+
+// Exact header of BulkUser.csv — order and casing must never change.
+const TEMPLATE_HEADER = 'givenName,surName,displayName,mailNickName,domain,JobTitle,streetAddress,PostalCode,City,State,Department,MobilePhone,businessPhones';
+
+const FIELDS = [
+  { key: 'givenName',      label: 'givenName',      required: true,
+    aliases: ['givenname','firstname','first','fornavn','fnavn','fname'] },
+  { key: 'surName',        label: 'surName',        required: true,
+    aliases: ['surname','lastname','last','familyname','etternavn','enavn','lname'] },
+  { key: 'displayName',    label: 'displayName',    required: false, derived: true,
+    aliases: ['displayname','fullname','name','visningsnavn','navn','commonname'] },
+  { key: 'mailNickName',   label: 'mailNickName',   required: true, derived: true,
+    aliases: ['mailnickname','mailnick','nickname','alias','email','mail','epost','epostalias','username','brukernavn','login','userprincipalname','upn'] },
+  { key: 'domain',         label: 'domain',         required: true, derived: true,
+    aliases: ['domain','domene','domenenavn','upnsuffix'] },
+  { key: 'JobTitle',       label: 'JobTitle',       required: false,
+    aliases: ['jobtitle','title','position','role','stilling','stillingstittel','job'] },
+  { key: 'streetAddress',  label: 'streetAddress',  required: false,
+    aliases: ['streetaddress','street','address','gate','gateadresse','adresse','postadresse'] },
+  { key: 'PostalCode',     label: 'PostalCode',     required: false,
+    aliases: ['postalcode','zip','zipcode','postcode','postnummer','postnr'] },
+  { key: 'City',           label: 'City',           required: false,
+    aliases: ['city','town','locality','poststed','sted','by','bosted'] },
+  { key: 'State',          label: 'State',          required: false,
+    aliases: ['state','region','province','fylke','delstat'] },
+  { key: 'Department',     label: 'Department',     required: false,
+    aliases: ['department','dept','avdeling','seksjon','team','enhet'] },
+  { key: 'MobilePhone',    label: 'MobilePhone',    required: false,
+    aliases: ['mobilephone','mobile','cell','cellphone','mobil','mobiltelefon','mobilnr','handy','phone','phonenumber','telefon','tlf','tel'] },
+  { key: 'businessPhones', label: 'businessPhones', required: false,
+    aliases: ['businessphones','businessphone','workphone','officetelephone','jobbtelefon','kontortelefon','arbeidstelefon','worktelephone','telephonenumber'] },
+];
+
+const SAMPLE_CSV = [
+  'First name,Last name,Mobile,Department,Job title,Street address,Postal code,City',
+  'Kari,Nordmann,+47 400 12 345,Utvikling,Senior utvikler,Storgata 1,0150,Oslo',
+  'Ola,Nordmann,+47 901 23 456,Salg,Salgssjef,Torgallmenningen 2,5003,Bergen',
+  'Håkon,Nordal,+47 480 55 123,IT,IT-ansvarlig,Bragernes torg 3,3003,Drammen',
+].join('\n');
+
+/* ================= state ================= */
+
+const state = {
+  headers: [],          // source column names
+  rawRows: [],          // array of arrays (no header)
+  mapping: {},          // fieldKey -> source column index (-1 = none)
+  rows: [],             // transformed template-shaped rows (objects by field key)
+};
+
+/* ================= CSV parsing ================= */
+
+function detectDelimiter(text) {
+  const line = text.split(/\r?\n/)[0] || '';
+  const counts = { ',': 0, ';': 0, '\t': 0 };
+  let q = false;
+  for (const c of line) {
+    if (c === '"') q = !q;
+    if (!q && c in counts) counts[c]++;
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+function parseCSV(text, delim) {
+  text = text.replace(/^\uFEFF/, '');
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === delim) {
+      row.push(field); field = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(v => v.trim() !== ''));
+}
+
+// Read file as UTF-8; fall back to Windows-1252 if we see replacement chars
+// (typical for Excel exports with æøå saved as ANSI).
+async function readFile(file) {
+  const buf = await file.arrayBuffer();
+  let text = new TextDecoder('utf-8').decode(buf);
+  if (text.includes('\uFFFD')) text = new TextDecoder('windows-1252').decode(buf);
+  return text;
+}
+
+/* ================= mapping ================= */
+
+const norm = s =>
+  s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+
+function autoMap() {
+  state.mapping = {};
+  const used = new Set();
+
+  // pass 1: exact alias hits (in template-field order, so 'mobile' beats generic 'phone')
+  for (const f of FIELDS) {
+    state.mapping[f.key] = -1;
+    for (let i = 0; i < state.headers.length; i++) {
+      const h = norm(state.headers[i]);
+      if (f.aliases.includes(h) && !used.has(i)) { state.mapping[f.key] = i; used.add(i); break; }
+    }
+  }
+  // pass 2: fuzzy containment for leftovers (e.g. "mobile number", "mobilephone (privat)")
+  for (const f of FIELDS) {
+    if (state.mapping[f.key] !== -1) continue;
+    for (let i = 0; i < state.headers.length; i++) {
+      const h = norm(state.headers[i]);
+      if (used.has(i) || !h) continue;
+      if (f.aliases.some(a => a.length > 3 && h.includes(a))) { state.mapping[f.key] = i; used.add(i); break; }
+    }
+  }
+}
+
+/* ================= transform / derive ================= */
+
+function asciiFold(s) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/æ/gi, 'ae').replace(/ø/gi, 'o').replace(/å/gi, 'a')
+    .replace(/ß/g, 'ss');
+}
+
+function makeMailNick(given, sur) {
+  const base = asciiFold(`${given}.${sur}`.trim())
+    .toLowerCase()
+    .replace(/[^a-z0-9.]/g, '')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+  return base || 'user';
+}
+
+const cell = (row, idx) => (idx >= 0 && idx < row.length ? row[idx].trim() : '');
+
+function transform() {
+  const defDomain = document.getElementById('def-domain').value.trim();
+  const defBiz = document.getElementById('def-bizphone').value.trim();
+  const m = state.mapping;
+
+  state.rows = state.rawRows.map(r => {
+    const o = {};
+    for (const f of FIELDS) {
+      let v = cell(r, m[f.key]);
+      if (f.key === 'mailNickName' && v.includes('@')) v = v.split('@')[0]; // full email → alias
+      if (f.key === 'displayName') v = v || `${cell(r, m.givenName)} ${cell(r, m.surName)}`.replace(/\s+/g, ' ').trim();
+      if (f.key === 'mailNickName' && !v) v = makeMailNick(cell(r, m.givenName), cell(r, m.surName));
+      if (f.key === 'domain' && !v) v = defDomain;
+      if (f.key === 'businessPhones' && !v) v = defBiz;
+      o[f.key] = v;
+    }
+    return o;
+  });
+
+  // de-duplicate mailNickName (Entra requires unique aliases)
+  const seen = new Map();
+  for (const r of state.rows) {
+    const k = r.mailNickName.toLowerCase();
+    const n = seen.get(k) || 0;
+    seen.set(k, n + 1);
+    if (n > 0) r.mailNickName = `${r.mailNickName}.${n + 1}`;
+  }
+
+  renderMapping();
+  renderPreview();
+}
+
+/* ================= validation ================= */
+
+function validateRow(r) {
+  const problems = {};
+  for (const f of FIELDS) {
+    if (f.required && !r[f.key]) problems[f.key] = 'invalid';
+  }
+  const mn = r.mailNickName;
+  if (mn && (!/^[a-z0-9.]+$/i.test(mn) || /\s/.test(mn))) problems.mailNickName = 'warn';
+  if (mn && !/\./.test(mn)) problems.mailNickName = 'warn';
+  return problems;
+}
+
+/* ================= rendering ================= */
+
+const $ = id => document.getElementById(id);
+
+function renderMapping() {
+  const grid = $('mapping-grid');
+  grid.innerHTML = '';
+  for (const f of FIELDS) {
+    const div = document.createElement('div');
+    div.className = 'map-item';
+    const opts = [`<option value="-1">— none / derive —</option>`]
+      .concat(state.headers.map((h, i) =>
+        `<option value="${i}" ${state.mapping[f.key] === i ? 'selected' : ''}>${escapeHtml(h || 'Column ' + (i + 1))}</option>`))
+      .join('');
+    div.innerHTML = `
+      <label>${f.label} ${f.required ? '<span class="req">*</span>' : ''}</label>
+      <select data-field="${f.key}">${opts}</select>`;
+    div.querySelector('select').addEventListener('change', e => {
+      state.mapping[f.key] = parseInt(e.target.value, 10);
+      transform();
+    });
+    grid.appendChild(div);
+  }
+}
+
+function renderPreview() {
+  const table = $('preview-table');
+  const head = '<thead><tr><th>#</th>' +
+    FIELDS.map(f => `<th>${f.label}</th>`).join('') +
+    '<th></th></tr></thead>';
+
+  const body = state.rows.map((r, ri) => {
+    const probs = validateRow(r);
+    const cells = FIELDS.map(f =>
+      `<td><input data-row="${ri}" data-field="${f.key}" value="${escapeAttr(r[f.key])}" class="${probs[f.key] || ''}"></td>`
+    ).join('');
+    return `<tr><td class="rownum">${ri + 1}</td>${cells}<td class="action"><button data-del="${ri}" title="Remove row">✕</button></td></tr>`;
+  }).join('');
+
+  table.innerHTML = head + `<tbody>${body}</tbody>`;
+
+  // cell edits: update model in place (no re-render → keeps focus)
+  table.querySelectorAll('input[data-row]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      state.rows[+inp.dataset.row][inp.dataset.field] = inp.value;
+      inp.classList.toggle('invalid', validateRow(state.rows[+inp.dataset.row])[inp.dataset.field] === 'invalid');
+      inp.classList.toggle('warn', validateRow(state.rows[+inp.dataset.row])[inp.dataset.field] === 'warn');
+      renderStatus();
+    });
+  });
+  table.querySelectorAll('button[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.rows.splice(+btn.dataset.del, 1);
+      renderPreview();
+    });
+  });
+
+  renderStatus();
+}
+
+function renderStatus() {
+  const total = state.rows.length;
+  const bad = state.rows.filter(r => Object.values(validateRow(r)).includes('invalid')).length;
+  const warns = state.rows.filter(r => Object.values(validateRow(r)).includes('warn')).length;
+  $('status-bar').innerHTML =
+    `<span class="badge ${bad ? 'err' : 'ok'}">${total} rows</span>` +
+    (bad ? `<span class="badge err">${bad} with missing required fields</span>` : '') +
+    (warns ? `<span class="badge warn">${warns} with mailNickName warnings</span>` : '') +
+    (bad ? '<span style="font-size:12px; color:#9aa3b2;">Fix red cells (or set a default domain) before importing.</span>' : '');
+  $('btn-download').disabled = total === 0;
+  $('btn-copy').disabled = total === 0;
+}
+
+/* ================= export ================= */
+
+function csvEscape(v) {
+  v = String(v ?? '');
+  return /[",\n\r;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+function buildCSV() {
+  const lines = [TEMPLATE_HEADER];
+  for (const r of state.rows) lines.push(FIELDS.map(f => csvEscape(r[f.key])).join(','));
+  return lines.join('\r\n') + '\r\n';
+}
+
+function download() {
+  const blob = new Blob(['\uFEFF' + buildCSV()], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'BulkUser.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function copyCSV() {
+  await navigator.clipboard.writeText(buildCSV());
+  const b = $('btn-copy');
+  b.textContent = '✓ Copied';
+  setTimeout(() => (b.textContent = 'Copy CSV'), 1500);
+}
+
+/* ================= data loading ================= */
+
+function loadData(text) {
+  const delim = detectDelimiter(text);
+  const all = parseCSV(text, delim);
+  if (!all.length) { alert('Could not parse any rows from that file.'); return; }
+
+  const hasHeader = $('first-row-header').checked;
+  state.headers = hasHeader
+    ? all[0].map(h => h.trim())
+    : all[0].map((_, i) => `Column ${i + 1}`);
+  state.rawRows = hasHeader ? all.slice(1) : all;
+
+  autoMap();
+  $('file-name').textContent = `Parsed ${state.rawRows.length} data rows · delimiter "${delim === '\t' ? 'TAB' : delim}"`;
+  transform();
+}
+
+function resetAll() {
+  state.headers = []; state.rawRows = []; state.rows = [];
+  $('mapping-card').classList.add('hidden');
+  $('preview-card').classList.add('hidden');
+  $('empty-state').classList.remove('hidden');
+  $('file-name').textContent = '';
+  $('btn-download').disabled = true;
+  $('btn-copy').disabled = true;
+}
+
+/* ================= utils ================= */
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function escapeAttr(s) { return escapeHtml(s); }
+
+/* ================= wiring ================= */
+
+const dz = $('dropzone');
+dz.addEventListener('click', () => $('file-input').click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) f.text ? readFile(f).then(loadData) : null;
+});
+$('file-input').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) readFile(f).then(loadData);
+  e.target.value = '';
+});
+$('btn-paste').addEventListener('click', () => {
+  $('paste-wrap').classList.toggle('show');
+  $('paste-input').focus();
+});
+$('btn-parse-paste').addEventListener('click', () => loadData($('paste-input').value));
+$('first-row-header').addEventListener('change', () => { if (state.rawRows.length || state.headers.length) renderMapping(); });
+
+$('btn-sample').addEventListener('click', () => loadData(SAMPLE_CSV));
+$('btn-download').addEventListener('click', download);
+$('btn-copy').addEventListener('click', copyCSV);
+$('btn-clear').addEventListener('click', () => { if (confirm('Clear loaded data, mapping and preview?')) resetAll(); });
+$('btn-add-row').addEventListener('click', () => {
+  const o = {};
+  FIELDS.forEach(f => (o[f.key] = ''));
+  o.domain = $('def-domain').value.trim();
+  o.businessPhones = $('def-bizphone').value.trim();
+  state.rows.push(o);
+  renderPreview();
+});
+['def-domain', 'def-bizphone'].forEach(id =>
+  $(id).addEventListener('input', () => { if (state.rawRows.length) transform(); })
+);
+</script>
+</body>
+</html>
